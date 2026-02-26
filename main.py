@@ -1,5 +1,5 @@
-from fastapi import FastAPI, UploadFile, Request, BackgroundTasks,Depends, HTTPException, status, Form
-from fastapi.responses import Response, JSONResponse, RedirectResponse
+from fastapi import FastAPI, UploadFile, Request, BackgroundTasks
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from twilio.rest import Client
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,45 +13,6 @@ from threading import Lock
 import requests
 import queue
 
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse
-
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-import bcrypt
-
-
-# --- SQLite Setup ---
-SQLALCHEMY_DATABASE_URL = "sqlite:///./users.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# User Model
-class UserDB(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-
-# Create the database file
-Base.metadata.create_all(bind=engine)
-
-# Dependency to get DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-
-
 
 from config import HUMAN_AGENT_NUMBER, COMMON_MESSAGE_TEXT
 
@@ -62,10 +23,6 @@ from config import (
     BASE_URL,
     ELEVENLABS_API_KEY,
     VOICE_ID
-)
-
-from config import (
-    SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 
 app = FastAPI(title="VetPay Outbound Dialer")
@@ -294,163 +251,13 @@ def generate_final_output_csv():
 
     print(f"Output CSV created: {out_path}")
 
-
-@app.on_event("startup")
-async def startup_event():
-    db = SessionLocal()
-    user = db.query(UserDB).filter(UserDB.username == "admin").first()
-    if not user:
-        # Change this line:
-        hashed = hash_password("admin123") 
-        new_user = UserDB(username="admin", hashed_password=hashed)
-        db.add(new_user)
-        db.commit()
-    db.close()
-
-def hash_password(password: str) -> str:
-    # Generate a salt and hash the password
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Check if the provided password matches the stored hash
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-
-# Custom dependency to get user from Cookie
-# This handles API security
-async def get_current_user(request: Request, db: Session = Depends(get_db)):
-    token = request.cookies.get("access_token")
-    
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
-    try:
-        # 1. Verify the signature and expiration using your SECRET_KEY
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        
-        if username is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-            
-    except JWTError:
-        # This triggers if the token is fabricated, expired, or tampered with
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
-
-    # 2. Double check the database to ensure the user still exists
-    user = db.query(UserDB).filter(UserDB.username == username).first()
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
-        
-    return username
-
-
-# Route to serve the Login Page
-@app.get("/login", response_class=HTMLResponse)
-async def get_login():
-    return FileResponse("login.html")
-
-# Route to serve the Dashboard (index.html)
-@app.get("/index.html", response_class=HTMLResponse)
-async def get_dashboard(request: Request, db: Session = Depends(get_db)):
-    token = request.cookies.get("access_token")
-    
-    if not token:
-        return RedirectResponse(url="/login")
-
-    try:
-        # Verify the token is real
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        user = db.query(UserDB).filter(UserDB.username == username).first()
-        
-        if not user:
-            return RedirectResponse(url="/login")
-            
-        # If we reach here, the token is 100% valid and verified
-        return FileResponse("index.html")
-        
-    except JWTError:
-        # Token was fabricated or expired! Clear it and send back to login
-        response = RedirectResponse(url="/login")
-        response.delete_cookie("access_token")
-        return response
-
-# Route to redirect the root (/) to the index page
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    return RedirectResponse(url="/index.html")
-
-# --- AUTH ENDPOINTS ---
-
-@app.post("/token")
-async def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    user = db.query(UserDB).filter(UserDB.username == username).first()
-    
-    # Verify user exists and password hash matches
-    if not user or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
-    
-    access_token = jwt.encode(
-        {"sub": username, "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)},
-        SECRET_KEY, algorithm=ALGORITHM
-    )
-    
-    response = JSONResponse(content={"message": "Logged in"})
-    response.set_cookie(
-        key="access_token", 
-        value=access_token, 
-        httponly=True, 
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        samesite="lax"
-    )
-    return response
-
-
-@app.post("/update-account")
-async def update_account(
-    current_password: str = Form(...), 
-    new_username: str = Form(None),
-    new_password: str = Form(None),
-    current_user: str = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    user = db.query(UserDB).filter(UserDB.username == current_user).first()
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # 1. ALWAYS verify the current password before making any changes
-    if not verify_password(current_password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password incorrect")
-
-    # 2. Handle Username Update
-    if new_username and new_username != user.username:
-        # Check if the new username is already taken by someone else
-        existing_user = db.query(UserDB).filter(UserDB.username == new_username).first()
-        if existing_user:
-            raise HTTPException(status_code=400, detail="Username already taken")
-        user.username = new_username
-
-    # 3. Handle Password Update
-    if new_password:
-        user.hashed_password = hash_password(new_password)
-
-    db.commit()
-    return {"message": "Account updated successfully"}
-
-@app.post("/logout")
-async def logout():
-    response = JSONResponse(content={"message": "Logged out"})
-    response.delete_cookie("access_token")
-    return response
-
 # Endpoints
+@app.get("/")
+def serve_home():
+    return FileResponse("index.html")
+
 @app.post("/upload-contacts")
-async def upload_contacts(file: UploadFile,user: str = Depends(get_current_user)):
+async def upload_contacts(file: UploadFile):
     content = (await file.read()).decode('utf-8').splitlines()
     reader = csv.DictReader(content)
 
@@ -475,7 +282,7 @@ async def upload_contacts(file: UploadFile,user: str = Depends(get_current_user)
     return {"message": "Contacts uploaded", "count": count}
 
 @app.post("/start-calls")
-def start_calls(background_tasks: BackgroundTasks, user: str = Depends(get_current_user)):
+def start_calls(background_tasks: BackgroundTasks):
     global stop_requested
     stop_requested = False
 
@@ -529,7 +336,7 @@ def run_outbound_calls():
 
 
 @app.post("/stop-calls")
-def stop_calls(user: str = Depends(get_current_user)):
+def stop_calls():
     global stop_requested
 
     stop_requested = True
@@ -646,8 +453,7 @@ async def call_status(request: Request):
                     already_transferred = True
         except:
             pass
-
-    # ── save result only if not transferred ──
+     # ── save result only if not transferred ──
     if not already_transferred:
         if status == "no-answer":
             save_result(phone, name, "no_answer")
@@ -657,6 +463,7 @@ async def call_status(request: Request):
             save_result(phone, name, status)
         elif status == "completed":
             save_result(phone, name, "answered_no_transfer")
+
 
     # ── ALWAYS count & continue ──
     with call_tracker["lock"]:
@@ -675,7 +482,7 @@ async def call_status(request: Request):
     return "ok"
 
 @app.get("/result-csv")
-def result_csv(user: str = Depends(get_current_user)):
+def result_csv():
     if not os.path.exists(OUTPUT_CSV_DIR):
         return {"status": "processing"}
 
@@ -703,7 +510,7 @@ def result_csv(user: str = Depends(get_current_user)):
 
 
 @app.get("/call-progress")
-def call_progress(user: str = Depends(get_current_user)):
+def call_progress():
     with call_tracker["lock"]:
         return {
             "total": call_tracker["total"],
