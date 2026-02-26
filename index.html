@@ -76,49 +76,30 @@
                     <span id="fileText">Drop CSV file or click to browse</span>
                 </label>
                 <input type="file" id="csvFile" accept=".csv" />
-                <button class="btn-primary" onclick="uploadContacts()">
-                    <span id="uploadIcon">↑</span> Upload Contacts
-                </button>
+                <button class="btn-primary" onclick="uploadContacts()">Upload Contacts</button>
             </div>
+
             <div class="section">
                 <h3><span class="step-num">2</span> Call Controls</h3>
-
-                <button id="startBtn" class="btn-success" onclick="startCalls()">
-                    <span id="callIcon">▶</span> Start Calling All Contacts
-                </button>
-
-                <button id="stopBtn" class="btn-danger" onclick="stopCalls()" style="margin-top:12px;" disabled>
-                    <span>■</span> Stop Calling
-                </button>
+                <button id="startBtn" class="btn-success" onclick="startCalls()">▶ Start Calling All Contacts</button>
+                <button id="stopBtn" class="btn-danger" onclick="stopCalls()" disabled>■ Stop Calling</button>
             </div>
-            
+
             <div class="status-box" id="status">
-                <span>⏳</span>
-                <span>Waiting for action...</span>
+                <span>⏳</span><span>Checking authentication...</span>
             </div>
-            
-            <!-- MANUAL LOAD BUTTON - BIG & OBVIOUS -->
-            <button class="load-btn" onclick="loadResults()">
-                📊 LOAD CALL RESULTS NOW
-            </button>
 
-        <!-- Results Table -->
+            <button class="load-btn" onclick="loadResults()">📊 LOAD CALL RESULTS NOW</button>
+
             <div id="resultsSection">
                 <div class="results-header">
                     <h3>📊 Call Results</h3>
-                    <button class="btn-primary" onclick="downloadCSV()" style="width: auto; padding: 10px 20px; margin: 0;">
-                        ⬇ Download CSV
-                    </button>
+                    <button class="btn-primary" onclick="downloadCSV()" style="width: auto; padding: 10px 20px; margin: 0;">⬇ Download CSV</button>
                 </div>
                 <div class="table-container">
                     <table>
                         <thead>
-                            <tr>
-                                <th>Client</th>
-                                <th>Name</th>
-                                <th>Phone</th>
-                                <th>Response</th>
-                            </tr>
+                            <tr><th>Client</th><th>Name</th><th>Phone</th><th>Response</th></tr>
                         </thead>
                         <tbody id="resultsBody"></tbody>
                     </table>
