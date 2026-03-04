@@ -139,7 +139,8 @@ def start_next_call():
         twilio.calls.create(
             to=phone,
             from_=TWILIO_PHONE_NUMBER,
-            url=f"{BASE_URL}/twilio/voice?client={client_id}",
+            # url=f"{BASE_URL}/twilio/voice?client={client_id}",
+            url=f"{BASE_URL}/twilio/voice?phone={phone}",
             status_callback=f"{BASE_URL}/twilio/status",
             status_callback_event=["completed"],
         )
@@ -355,13 +356,15 @@ def stop_calls():
 
 @app.api_route("/twilio/voice", methods=["GET", "POST"])
 async def twilio_voice(request: Request):
-    client = request.query_params.get("client")
+    # client = request.query_params.get("client")
 
-    phone = None
-    for p, c in contact_map.items():
-        if c["client"] == client:
-            phone = p
-            break
+    # phone = None
+    # for p, c in contact_map.items():
+    #     if c["client"] == client:
+    #         phone = p
+    #         break
+
+    phone = normalize_phone(request.query_params.get("phone"))
 
     vr = VoiceResponse()
 
