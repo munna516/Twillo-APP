@@ -142,7 +142,8 @@ def start_next_call():
             # url=f"{BASE_URL}/twilio/voice?client={client_id}",
             url=f"{BASE_URL}/twilio/voice?phone={phone}",
             status_callback=f"{BASE_URL}/twilio/status",
-            status_callback_event=["completed"],
+            # status_callback_event=["completed"],
+            status_callback_event=["initiated", "ringing", "answered", "completed"],
         )
     except queue.Empty:
         pass
