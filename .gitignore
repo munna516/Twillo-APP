@@ -8,3 +8,5 @@
 .env.production
 
 __pycache__/
+output_results/
+audio/
