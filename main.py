@@ -470,8 +470,13 @@ async def call_status(request: Request):
             save_result(phone, name, "busy")
         elif status in ["failed", "canceled"]:
             save_result(phone, name, status)
+        # elif status == "completed":
+        #     save_result(phone, name, "answered_no_transfer")
         elif status == "completed":
-            save_result(phone, name, "answered_no_transfer")
+            if duration >= 5:
+                save_result(phone, name, "answered_no_transfer")
+            else:
+                save_result(phone, name, "no_answer")
 
 
     # ── ALWAYS count & continue ──
