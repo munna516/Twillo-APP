@@ -383,7 +383,7 @@ async def twilio_voice(request: Request):
     gather = Gather(
         input="speech dtmf",
         speech_timeout="auto",
-        timeout=6,
+        timeout=15,
         num_digits=1,
         action=f"/twilio/transfer?phone={phone}",
         method="POST"
@@ -470,13 +470,8 @@ async def call_status(request: Request):
             save_result(phone, name, "busy")
         elif status in ["failed", "canceled"]:
             save_result(phone, name, status)
-        # elif status == "completed":
-        #     save_result(phone, name, "answered_no_transfer")
         elif status == "completed":
-            if duration >= 5:
-                save_result(phone, name, "answered_no_transfer")
-            else:
-                save_result(phone, name, "no_answer")
+            pass
 
 
     # ── ALWAYS count & continue ──
