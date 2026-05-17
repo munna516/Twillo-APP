@@ -9,7 +9,7 @@ import csv
 import json
 import os
 from datetime import datetime
-from threading import Lock
+from threading import Lock, Timer
 import requests
 import queue
 from fastapi.responses import JSONResponse
@@ -115,10 +115,13 @@ for key, txt in static_texts.items():
     if not os.path.exists(path):
         generate_audio(txt, path)
 
-# Queue for sequential calling
+# Sequential calling — 1 call at a time, 5-second gap between calls
+CALL_GAP_SECONDS = 5
+
 call_queue = queue.Queue()
 next_call_lock = Lock()
 is_calling = False
+
 
 def start_next_call():
     global is_calling, stop_requested
@@ -136,18 +139,38 @@ def start_next_call():
         phone, name, client_id = call_queue.get_nowait()
         print(f"[OUT] Calling: {phone} ({name}) - Client: {client_id}")
 
+        current_call_info["phone"] = phone
+        current_call_info["name"] = name
+        current_call_info["client"] = client_id
+        current_call_info["status"] = "dialing"
+
+        call_log.insert(0, {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "phone": phone,
+            "name": name,
+            "client": client_id,
+            "status": "dialing"
+        })
+        if len(call_log) > 50:
+            call_log.pop()
+
         twilio.calls.create(
             to=phone,
             from_=TWILIO_PHONE_NUMBER,
-            # url=f"{BASE_URL}/twilio/voice?client={client_id}",
             url=f"{BASE_URL}/twilio/voice?phone={phone}",
             status_callback=f"{BASE_URL}/twilio/status",
-            # status_callback_event=["completed"],
             status_callback_event=["initiated", "ringing", "answered", "completed"],
+            machine_detection="DetectMessageEnd",
+            machine_detection_timeout=30,
+            machine_detection_speech_threshold=2400,
+            machine_detection_speech_end_threshold=1200,
+            machine_detection_silence_timeout=5000,
         )
     except queue.Empty:
         pass
-    finally:
+    except Exception as e:
+        print(f"[ERROR] Failed to call {phone}: {e}")
+        current_call_info["status"] = "failed"
         with next_call_lock:
             is_calling = False
 
@@ -161,6 +184,15 @@ call_tracker = {
     "running": False,
     "lock": Lock()
 }
+
+current_call_info = {
+    "phone": "",
+    "name": "",
+    "client": "",
+    "status": "idle"  # idle | dialing | ringing | connected | completed
+}
+
+call_log = []  # recent activity entries
 
 contact_map: dict[str, dict] = {}
 
@@ -335,6 +367,7 @@ def run_outbound_calls():
 
                     call_queue.put((phone, name, client))
 
+        # Fire the first batch of concurrent calls
         start_next_call()
 
     finally:
@@ -357,15 +390,8 @@ def stop_calls():
 
 @app.api_route("/twilio/voice", methods=["GET", "POST"])
 async def twilio_voice(request: Request):
-    # client = request.query_params.get("client")
-
-    # phone = None
-    # for p, c in contact_map.items():
-    #     if c["client"] == client:
-    #         phone = p
-    #         break
-
     phone = normalize_phone(request.query_params.get("phone"))
+    answered_by = request.query_params.get("AnsweredBy", "unknown")
 
     vr = VoiceResponse()
 
@@ -373,6 +399,17 @@ async def twilio_voice(request: Request):
         vr.say("System error. Goodbye.")
         return Response(str(vr), media_type="application/xml")
 
+    contact = contact_map.get(phone)
+    name = contact["name"] if contact else "customer"
+
+    # ── Voicemail / machine detected: save result and hang up ──
+    if answered_by in ("machine_start", "machine_end_beep", "machine_end_silence", "fax"):
+        print(f"[AMD] Voicemail detected for {phone} ({answered_by})")
+        save_result(phone, name, "voicemail")
+        vr.hangup()
+        return Response(str(vr), media_type="application/xml")
+
+    # ── Human or unknown: play the full call flow ──
     # 1) Say name first
     vr.play(f"{BASE_URL}/audio/hello_{phone}_v3.mp3")
 
@@ -434,6 +471,7 @@ async def transfer_call(request: Request):
 
 @app.post("/twilio/status")
 async def call_status(request: Request):
+    global is_calling
     form = await request.form()
 
     phone_raw = form.get("To") or form.get("Called") or form.get("From")
@@ -451,19 +489,26 @@ async def call_status(request: Request):
 
     name = contact["name"]
 
-    # ── check if already transferred ──
-    already_transferred = False
+    # ── Update live call tracking ──
+    if status in ("ringing", "answered", "completed", "no-answer", "busy", "failed", "canceled"):
+        current_call_info["status"] = status
+        for entry in call_log:
+            if entry["phone"] == phone and entry["status"] in ("dialing", "ringing", "answered"):
+                entry["status"] = status
+                break
+
+    # ── check if already has a result (transferred or voicemail) ──
+    existing_result = ""
     if os.path.exists(RESULTS_JSON):
         try:
             with open(RESULTS_JSON, "r", encoding="utf-8") as f:
                 results = json.load(f)
-                if results.get(phone, {}).get("result") == "successfully_transferred":
-                    print("Already transferred, skip overwrite")
-                    already_transferred = True
+                existing_result = results.get(phone, {}).get("result", "")
         except:
             pass
-     # ── save result only if not transferred ──
-    if not already_transferred:
+
+    # ── save result only if no result was saved yet ──
+    if not existing_result:
         if status == "no-answer":
             save_result(phone, name, "no_answer")
         elif status == "busy":
@@ -471,7 +516,7 @@ async def call_status(request: Request):
         elif status in ["failed", "canceled"]:
             save_result(phone, name, status)
         elif status == "completed":
-            pass
+            save_result(phone, name, "completed_no_transfer")
 
 
     # ── ALWAYS count & continue ──
@@ -484,10 +529,17 @@ async def call_status(request: Request):
         if done >= total and total > 0:
             print("All calls finished → generating output CSV")
             generate_final_output_csv()
-            # call_tracker.update(total=0, completed=0, running=False)
             call_tracker["running"] = False
+            current_call_info["status"] = "idle"
+            current_call_info["phone"] = ""
+            current_call_info["name"] = ""
+            current_call_info["client"] = ""
 
-    start_next_call()
+    with next_call_lock:
+        is_calling = False
+
+    # Wait 5 seconds, then call the next contact
+    Timer(CALL_GAP_SECONDS, start_next_call).start()
     return "ok"
 
 @app.get("/result-csv")
@@ -524,6 +576,18 @@ def call_progress():
         return {
             "total": call_tracker["total"],
             "completed": call_tracker["completed"]
+        }
+
+
+@app.get("/live-status")
+def live_status():
+    with call_tracker["lock"]:
+        return {
+            "total": call_tracker["total"],
+            "completed": call_tracker["completed"],
+            "running": call_tracker["running"],
+            "current": dict(current_call_info),
+            "log": call_log[:30]
         }
 
 

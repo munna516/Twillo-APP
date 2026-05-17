@@ -3,164 +3,329 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>VetPay Outbound Call Agent</title>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <title>VetPay Outbound Dialer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* (Styles remain the same as your previous version) */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --primary: #8b6f74; --primary-dark: #6d5559; --success: #d4a574;
-            --success-dark: #b8885c; --danger: #e57373; --bg-dark: #2a2424;
-            --bg-card: #352e2e; --bg-section: #3f3737; --text-primary: #fdf8f3;
-            --text-secondary: #d4c4b8; --border: #4a3f3f;
+            --primary: #6366f1; --primary-dark: #4f46e5; --primary-light: #818cf8;
+            --success: #22c55e; --success-dark: #16a34a;
+            --warning: #f59e0b; --danger: #ef4444; --danger-dark: #dc2626;
+            --bg: #0f172a; --bg-card: #1e293b; --bg-section: #334155;
+            --bg-hover: #3b4a63; --text: #f8fafc; --text-secondary: #94a3b8;
+            --text-muted: #64748b; --border: #475569;
         }
-        body { min-height: 100vh; background: var(--bg-dark); font-family: 'DM Sans', sans-serif; color: var(--text-primary); padding: 40px 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .header-flex { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
-        .card { background: var(--bg-card); border-radius: 32px; padding: 50px; box-shadow: 0 0 0 1px var(--border), 0 40px 80px rgba(0, 0, 0, 0.3); }
-        h1 { font-size: 48px; font-weight: 700; margin-bottom: 16px; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .header-buttons { display: flex; gap: 10px; }
-        .logout-btn { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s; width: auto; margin-top: 0; }
-        .logout-btn:hover { background: var(--border); color: white; }
-        .logout-btn.danger-hover:hover { background: var(--danger); border-color: var(--danger); }
-        .section { margin: 28px 0; padding: 32px; border-radius: 20px; background: var(--bg-section); border: 1px solid var(--border); }
-        .section h3 { font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
-        .step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; }
+        body { min-height: 100vh; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); }
+        .layout { display: flex; min-height: 100vh; }
+
+        /* ─── Sidebar ─── */
+        .sidebar { width: 260px; background: var(--bg-card); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 24px 0; position: fixed; top: 0; bottom: 0; }
+        .sidebar-brand { padding: 0 24px 24px; border-bottom: 1px solid var(--border); }
+        .sidebar-brand h2 { font-size: 18px; font-weight: 700; color: var(--text); }
+        .sidebar-brand span { font-size: 12px; color: var(--text-muted); }
+        .sidebar-nav { flex: 1; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; border: none; background: none; width: 100%; text-align: left; }
+        .nav-item:hover { background: var(--bg-section); color: var(--text); }
+        .nav-item.active { background: var(--primary); color: white; }
+        .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+        .sidebar-footer { padding: 16px 12px; border-top: 1px solid var(--border); }
+        .nav-item.danger { color: var(--danger); }
+        .nav-item.danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+        /* ─── Main Content ─── */
+        .main { margin-left: 260px; flex: 1; padding: 32px; }
+        .page-header { margin-bottom: 28px; }
+        .page-header h1 { font-size: 24px; font-weight: 700; }
+        .page-header p { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+
+        /* ─── Cards ─── */
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+        .card + .card { margin-top: 20px; }
+        .card-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+
+        /* ─── Upload ─── */
+        .upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .upload-zone:hover { border-color: var(--primary); background: rgba(99, 102, 241, 0.05); }
+        .upload-zone.has-file { border-color: var(--success); background: rgba(34, 197, 94, 0.05); }
+        .upload-zone svg { width: 32px; height: 32px; color: var(--text-muted); margin-bottom: 8px; }
+        .upload-zone .label { font-size: 14px; color: var(--text-secondary); }
+        .upload-zone .sublabel { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
         input[type="file"] { display: none; }
-        .file-label { display: block; padding: 40px 24px; border: 2px dashed var(--border); border-radius: 16px; text-align: center; cursor: pointer; transition: all 0.3s; }
-        .file-label:hover { border-color: var(--primary); background: rgba(139, 111, 116, 0.08); }
-        button { width: 100%; padding: 16px 24px; border: none; border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 16px; transition: all 0.3s; }
-        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: var(--text-primary); }
-        .btn-success { background: linear-gradient(135deg, var(--success), var(--success-dark)); color: var(--bg-dark); }
-        .btn-danger { background: #d32f2f; color: white; }
-        button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .status-box { margin: 30px 0; padding: 20px 24px; border-radius: 16px; background: var(--bg-section); border: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 14px; }
-        #resultsSection { margin-top: 30px; display: none; }
-        .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .table-container { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-section); }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { padding: 16px; text-align: left; background: rgba(139, 111, 116, 0.15); color: var(--text-primary); border-bottom: 2px solid var(--border); }
-        td { padding: 14px 16px; border-bottom: 1px solid rgba(74, 63, 63, 0.5); color: var(--text-secondary); }
-        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .status-badge.successfully_transferred { background: rgba(76, 175, 80, 0.2); color: #81c784; }
-        .status-badge.answered_no_transfer { background: rgba(255, 152, 0, 0.2); color: #ffb74d; }
-        .status-badge.no_answer { background: rgba(244, 67, 54, 0.2); color: #e57373; }
-        .load-btn { background: linear-gradient(135deg, #4CAF50, #388E3C); color: white; font-size: 18px; padding: 20px; }
-        .settings-input { padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-dark); color: white; width: 100%; }
+
+        /* ─── Buttons ─── */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn svg { width: 16px; height: 16px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-success:hover:not(:disabled) { background: var(--success-dark); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover:not(:disabled) { background: var(--danger-dark); }
+        .btn-outline { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-outline:hover:not(:disabled) { background: var(--bg-section); color: var(--text); }
+        .btn-block { width: 100%; }
+        .btn-group { display: flex; gap: 10px; margin-top: 16px; }
+
+        /* ─── Live Dial Panel ─── */
+        .live-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        .live-metric { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+        .live-metric .metric-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .live-metric .metric-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .live-metric .metric-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        .dialing-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 20px; margin-bottom: 20px; position: relative; overflow: hidden; }
+        .dialing-card.active { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 0 20px rgba(99,102,241,0.15); opacity: 1; }
+        .dialing-card.idle { opacity: 0.6; }
+        .dialing-card.waiting { border-color: var(--warning); opacity: 1; }
+        .dial-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .dial-icon.dialing { background: rgba(99,102,241,0.15); color: var(--primary); animation: pulse 1.5s ease-in-out infinite; }
+        .dial-icon.connected { background: rgba(34,197,94,0.15); color: var(--success); animation: pulse 1.5s ease-in-out infinite; }
+        .dial-icon.idle-icon { background: var(--bg-section); color: var(--text-muted); }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        /* ─── Countdown Timer ─── */
+        .countdown-wrap { width: 48px; height: 48px; flex-shrink: 0; position: relative; }
+        .countdown-wrap svg { width: 48px; height: 48px; transform: rotate(-90deg); }
+        .countdown-wrap .ring-bg { fill: none; stroke: var(--bg-section); stroke-width: 4; }
+        .countdown-wrap .ring-fg { fill: none; stroke: var(--warning); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 126; stroke-dashoffset: 0; transition: stroke-dashoffset 1s linear; }
+        .countdown-number { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 16px; font-weight: 700; color: var(--warning); }
+        .dial-info { flex: 1; }
+        .dial-info .phone-number { font-size: 18px; font-weight: 600; font-family: 'Inter', monospace; }
+        .dial-info .contact-name { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+        .dial-status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .dial-status-badge.dialing { background: rgba(99,102,241,0.15); color: var(--primary-light); }
+        .dial-status-badge.ringing { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .dial-status-badge.answered, .dial-status-badge.connected { background: rgba(34,197,94,0.15); color: var(--success); }
+        .dial-status-badge.completed { background: rgba(34,197,94,0.15); color: var(--success); }
+        .dial-status-badge.no-answer { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .dial-status-badge.busy { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .dial-status-badge.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .dial-status-badge.idle { background: var(--bg-section); color: var(--text-muted); }
+
+        /* ─── Activity Feed ─── */
+        .activity-feed { max-height: 300px; overflow-y: auto; }
+        .activity-feed::-webkit-scrollbar { width: 4px; }
+        .activity-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .activity-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(71,85,105,0.3); }
+        .activity-row:last-child { border-bottom: none; }
+        .activity-time { font-size: 11px; color: var(--text-muted); font-family: 'Inter', monospace; width: 60px; flex-shrink: 0; }
+        .activity-phone { font-size: 13px; font-weight: 500; font-family: 'Inter', monospace; flex: 1; }
+        .activity-name { font-size: 12px; color: var(--text-secondary); flex: 1; }
+        .feed-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+        .feed-badge.dialing { background: rgba(99,102,241,0.15); color: var(--primary-light); }
+        .feed-badge.ringing { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .feed-badge.answered, .feed-badge.connected { background: rgba(34,197,94,0.15); color: var(--success); }
+        .feed-badge.completed { background: rgba(34,197,94,0.15); color: var(--success); }
+        .feed-badge.no-answer { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .feed-badge.busy { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .feed-badge.failed, .feed-badge.canceled { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+        /* ─── Results Table ─── */
+        #resultsSection { display: none; margin-top: 20px; }
+        .table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { padding: 12px 16px; text-align: left; background: var(--bg-section); color: var(--text-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--border); }
+        td { padding: 10px 16px; border-bottom: 1px solid rgba(71,85,105,0.3); color: var(--text); }
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .status-badge.successfully_transferred { background: rgba(34,197,94,0.15); color: var(--success); }
+        .status-badge.voicemail { background: rgba(156,39,176,0.15); color: #ce93d8; }
+        .status-badge.completed_no_transfer { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .status-badge.no_answer, .status-badge.no-answer { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-badge.busy { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-badge.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+        /* ─── Settings ─── */
+        .settings-form { max-width: 400px; display: flex; flex-direction: column; gap: 16px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; }
+        .form-input:focus { outline: none; border-color: var(--primary); }
+        .form-input::placeholder { color: var(--text-muted); }
+        .form-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+        .form-hint { font-size: 11px; color: var(--danger); font-weight: 500; }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main { margin-left: 0; }
+            .live-panel { grid-template-columns: 1fr; }
+        }
+
+        /* ─── Views ─── */
+        .view { display: none; }
+        .view.active { display: block; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="card">
-        <div class="header-flex">
-            <div>
-                <h1>📞 Outbound Call Agent</h1>
-                <p style="color: var(--text-secondary);">Securely manage VetPay automated calls</p>
-            </div>
-            <div class="header-buttons">
-                <!-- SINGLE BACK BUTTON (Shown only in settings) -->
-                <button class="logout-btn" id="backBtnHeader" onclick="toggleView('dashboard')" style="display: none;">← Back to Dashboard</button>
-                <!-- SETTINGS BUTTON (Shown only in dashboard) -->
-                <button class="logout-btn" id="settingsBtn" onclick="toggleView('settings')">Settings</button>
-                <button class="logout-btn danger-hover" onclick="logout()">Logout</button>
-            </div>
+<div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <h2>VetPay Dialer</h2>
+            <span>Outbound Call Agent</span>
         </div>
+        <nav class="sidebar-nav">
+            <button class="nav-item active" id="navDashboard" onclick="switchView('dashboard')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
+                Dashboard
+            </button>
+            <button class="nav-item" id="navSettings" onclick="switchView('settings')">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                Settings
+            </button>
+        </nav>
+        <div class="sidebar-footer">
+            <button class="nav-item danger" onclick="logout()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                Logout
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
 
         <!-- DASHBOARD VIEW -->
-        <div id="dashboardView">
-            <div class="section">
-                <h3><span class="step-num">1</span> Upload CSV</h3>
-                <label class="file-label" for="csvFile">
-                    <span id="fileText">Drop CSV file or click to browse</span>
-                </label>
-                <input type="file" id="csvFile" accept=".csv" />
-                <button class="btn-primary" onclick="uploadContacts()">Upload Contacts</button>
-            </div>
+        <div class="view active" id="dashboardView">
 
-            <div class="section">
-                <h3><span class="step-num">2</span> Call Controls</h3>
-                <button id="startBtn" class="btn-success" onclick="startCalls()">▶ Start Calling All Contacts</button>
-                <button id="stopBtn" class="btn-danger" onclick="stopCalls()" disabled>■ Stop Calling</button>
-            </div>
-
-            <div class="status-box" id="status">
-                <span>⏳</span><span>Checking authentication...</span>
-            </div>
-
-            <button class="load-btn" onclick="loadResults()">📊 LOAD CALL RESULTS NOW</button>
-
-            <div id="resultsSection">
-                <div class="results-header">
-                    <h3>📊 Call Results</h3>
-                    <button class="btn-primary" onclick="downloadCSV()" style="width: auto; padding: 10px 20px; margin: 0;">⬇ Download CSV</button>
+            <!-- Live Status Metrics -->
+            <div class="live-panel">
+                <div class="live-metric">
+                    <div class="metric-label">Total Contacts</div>
+                    <div class="metric-value" id="metricTotal">0</div>
                 </div>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr><th>Client</th><th>Name</th><th>Phone</th><th>Response</th></tr>
-                        </thead>
-                        <tbody id="resultsBody"></tbody>
-                    </table>
+                <div class="live-metric">
+                    <div class="metric-label">Completed</div>
+                    <div class="metric-value" id="metricCompleted">0</div>
+                    <div class="metric-sub" id="metricPercent">0%</div>
+                </div>
+            </div>
+
+            <!-- Current Call -->
+            <div class="dialing-card idle" id="dialCard">
+                <div class="dial-icon idle-icon" id="dialIcon">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                </div>
+                <div class="countdown-wrap" id="countdownWrap" style="display:none">
+                    <svg viewBox="0 0 48 48">
+                        <circle class="ring-bg" cx="24" cy="24" r="20"/>
+                        <circle class="ring-fg" id="countdownRing" cx="24" cy="24" r="20"/>
+                    </svg>
+                    <span class="countdown-number" id="countdownNum">5</span>
+                </div>
+                <div class="dial-info">
+                    <div class="phone-number" id="dialPhone">No active call</div>
+                    <div class="contact-name" id="dialName">Waiting for calls to start</div>
+                </div>
+                <span class="dial-status-badge idle" id="dialBadge">IDLE</span>
+            </div>
+
+            <!-- Upload + Controls -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                <div class="card">
+                    <div class="card-title">Upload Contacts</div>
+                    <label class="upload-zone" id="uploadZone" for="csvFile">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                        <div class="label" id="fileText">Drop CSV or click to browse</div>
+                        <div class="sublabel">Client, Name, Phone columns required</div>
+                    </label>
+                    <input type="file" id="csvFile" accept=".csv" />
+                    <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="uploadContacts()">Upload Contacts</button>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Call Controls</div>
+                    <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+                        <button class="btn btn-success btn-block" id="startBtn" onclick="startCalls()">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Start Calling
+                        </button>
+                        <button class="btn btn-danger btn-block" id="stopBtn" onclick="stopCalls()" disabled>
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+                            Stop Calling
+                        </button>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline" style="flex:1" onclick="loadResults()">Load Results</button>
+                        <button class="btn btn-outline" style="flex:1" onclick="downloadCSV()">Download CSV</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity Feed -->
+            <div class="card" style="margin-top:20px">
+                <div class="card-title">Activity Log</div>
+                <div class="activity-feed" id="activityFeed">
+                    <div class="activity-row" style="color:var(--text-muted); font-size:13px; justify-content:center;">No activity yet</div>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div id="resultsSection">
+                <div class="card" style="margin-top:20px">
+                    <div class="table-header">
+                        <div class="card-title" style="margin:0">Call Results</div>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr><th>Client</th><th>Name</th><th>Phone</th><th>Response</th></tr>
+                            </thead>
+                            <tbody id="resultsBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- SETTINGS VIEW -->
-        <div id="settingsView" style="display: none;">
-            <div class="section">
-                <h3><span class="step-num">⚙️</span> Account Settings</h3>
-                
-                <p style="color: var(--text-secondary); margin-bottom: 25px; font-size: 14px;">Update your administrator credentials below. You will be logged out after saving.</p>
-                
-                <div style="max-width: 400px; display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-secondary)">New Username</label>
-                        <input type="text" id="newUsername" class="settings-input" placeholder="Enter new username">
+        <div class="view" id="settingsView">
+            <div class="page-header">
+                <h1>Account Settings</h1>
+                <p>Update your administrator credentials. You will be logged out after saving.</p>
+            </div>
+            <div class="card">
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label>New Username</label>
+                        <input type="text" id="newUsername" class="form-input" placeholder="Enter new username">
                     </div>
-
-                    <div>
-                        <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--text-secondary)">New Password</label>
-                        <input type="password" id="newPass" class="settings-input" placeholder="Enter new password">
+                    <div class="form-group">
+                        <label>New Password</label>
+                        <input type="password" id="newPass" class="form-input" placeholder="Enter new password">
                     </div>
-
-                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
-                        <label style="display:block; margin-bottom:5px; font-size:12px; color:var(--danger)">Current Password (Required to save changes)</label>
-                        <input type="password" id="oldPass" class="settings-input" placeholder="Verify current password">
+                    <hr class="form-divider">
+                    <div class="form-group">
+                        <label>Current Password <span class="form-hint">(required)</span></label>
+                        <input type="password" id="oldPass" class="form-input" placeholder="Verify current password">
                     </div>
-                    
-                    <button class="btn-primary" onclick="updateAccount()" style="margin-top: 10px;">Save Changes</button>
+                    <button class="btn btn-primary btn-block" onclick="updateAccount()" style="margin-top:8px">Save Changes</button>
                 </div>
             </div>
         </div>
 
-    </div>
+    </main>
 </div>
 
 <script>
-    const API_BASE = ""; 
+    const API_BASE = "";
 
-    // View Toggler
-    function toggleView(view) {
-        const dashboard = document.getElementById('dashboardView');
-        const settings = document.getElementById('settingsView');
-        const settingsBtn = document.getElementById('settingsBtn');
-        const backBtn = document.getElementById('backBtnHeader');
-
-        if (view === 'settings') {
-            dashboard.style.display = 'none';
-            settings.style.display = 'block';
-            settingsBtn.style.display = 'none';
-            backBtn.style.display = 'inline-block';
+    // ─── View switching ───
+    function switchView(view) {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        if (view === 'dashboard') {
+            document.getElementById('dashboardView').classList.add('active');
+            document.getElementById('navDashboard').classList.add('active');
         } else {
-            dashboard.style.display = 'block';
-            settings.style.display = 'none';
-            settingsBtn.style.display = 'inline-block';
-            backBtn.style.display = 'none';
+            document.getElementById('settingsView').classList.add('active');
+            document.getElementById('navSettings').classList.add('active');
         }
     }
 
+    // ─── Auth fetch ───
     async function authorizedFetch(url, options = {}) {
         try {
             const res = await fetch(url, options);
@@ -169,6 +334,7 @@
         } catch (err) { console.error("Fetch error:", err); return null; }
     }
 
+    // ─── Settings ───
     async function updateAccount() {
         const current_password = document.getElementById('oldPass').value;
         const new_username = document.getElementById('newUsername').value;
@@ -185,50 +351,172 @@
 
     async function logout() { await fetch(`${API_BASE}/logout`, { method: "POST" }); window.location.href = "/login"; }
 
+    // ─── File upload ───
     document.getElementById('csvFile').addEventListener('change', function(e) {
+        const zone = document.getElementById('uploadZone');
         const fileText = document.getElementById('fileText');
-        if (this.files.length > 0) fileText.textContent = `✓ ${this.files[0].name}`;
+        if (this.files.length > 0) {
+            fileText.textContent = this.files[0].name;
+            zone.classList.add('has-file');
+        }
     });
-
-    function updateStatus(icon, message) { document.getElementById("status").innerHTML = `<span>${icon}</span><span>${message}</span>`; }
 
     async function uploadContacts() {
         const fileInput = document.getElementById("csvFile");
         if (!fileInput.files.length) return;
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
-        updateStatus("⏳", "Uploading...");
         const res = await authorizedFetch(`${API_BASE}/upload-contacts`, { method: "POST", body: formData });
-        if (res && res.ok) { const data = await res.json(); updateStatus("✅", `Uploaded ${data.count} contacts`); }
+        if (res && res.ok) { const data = await res.json(); alert(`Uploaded ${data.count} contacts`); }
     }
 
+    // ─── Call controls ───
     async function startCalls(){
-        updateStatus("⏳", "Starting calls...");
         const res = await authorizedFetch(`${API_BASE}/start-calls`, { method: "POST" });
-        if(res && res.ok){ document.getElementById("startBtn").disabled = true; document.getElementById("stopBtn").disabled = false; startPolling(); }
+        if(res && res.ok){
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            startPolling();
+        }
     }
 
     async function stopCalls(){
         const res = await authorizedFetch(`${API_BASE}/stop-calls`, { method: "POST" });
-        if(res && res.ok) { document.getElementById("startBtn").disabled = false; document.getElementById("stopBtn").disabled = true; stopPolling(); }
+        if(res && res.ok) {
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+            stopPolling();
+        }
     }
 
+    // ─── Live polling ───
     let pollingInterval = null;
+
     function startPolling() {
         if (pollingInterval) return;
-        pollingInterval = setInterval(async () => {
-            const res = await authorizedFetch(`${API_BASE}/call-progress`);
-            if (res && res.ok) {
-                const data = await res.json();
-                updateStatus("📞", `Progress: ${data.completed}/${data.total}`);
-                if(data.total > 0 && data.completed >= data.total) stopPolling();
-            } else stopPolling();
-        }, 5000);
+        pollingInterval = setInterval(pollStatus, 3000);
+        pollStatus();
     }
-    function stopPolling() { if(pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; } }
 
+    function stopPolling() {
+        if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+    }
+
+    let countdownInterval = null;
+    let countdownValue = 0;
+    const CIRCUMFERENCE = 2 * Math.PI * 20; // matches r=20 in SVG
+
+    function startCountdown() {
+        stopCountdown();
+        countdownValue = 5;
+        document.getElementById('dialIcon').style.display = 'none';
+        document.getElementById('countdownWrap').style.display = 'block';
+        document.getElementById('countdownRing').style.strokeDasharray = CIRCUMFERENCE;
+        document.getElementById('countdownRing').style.strokeDashoffset = '0';
+        document.getElementById('countdownNum').textContent = countdownValue;
+        updateCountdownDisplay();
+        countdownInterval = setInterval(() => {
+            countdownValue--;
+            if (countdownValue <= 0) {
+                stopCountdown();
+                return;
+            }
+            updateCountdownDisplay();
+        }, 1000);
+    }
+
+    function stopCountdown() {
+        if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+        document.getElementById('dialIcon').style.display = 'flex';
+        document.getElementById('countdownWrap').style.display = 'none';
+    }
+
+    function updateCountdownDisplay() {
+        const card = document.getElementById('dialCard');
+        const badge = document.getElementById('dialBadge');
+        const offset = CIRCUMFERENCE * (1 - countdownValue / 5);
+        document.getElementById('countdownRing').style.strokeDashoffset = offset;
+        document.getElementById('countdownNum').textContent = countdownValue;
+        card.className = 'dialing-card waiting';
+        document.getElementById('dialPhone').textContent = 'Next call in ' + countdownValue + 's...';
+        document.getElementById('dialName').textContent = 'Gap between calls';
+        badge.className = 'dial-status-badge idle';
+        badge.textContent = countdownValue + 's';
+    }
+
+    function formatStatus(status) {
+        const map = {
+            dialing: 'Dialing...', ringing: 'Ringing...', answered: 'Connected',
+            connected: 'Connected', completed: 'Completed', 'no-answer': 'No Answer',
+            busy: 'Busy', failed: 'Failed', canceled: 'Canceled', idle: 'IDLE'
+        };
+        return map[status] || status;
+    }
+
+    async function pollStatus() {
+        const res = await authorizedFetch(`${API_BASE}/live-status`);
+        if (!res || !res.ok) { stopPolling(); return; }
+        const data = await res.json();
+
+        // Metrics
+        document.getElementById('metricTotal').textContent = data.total;
+        document.getElementById('metricCompleted').textContent = data.completed;
+        const pct = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
+        document.getElementById('metricPercent').textContent = pct + '% complete';
+
+        // Current call
+        const cur = data.current;
+        const card = document.getElementById('dialCard');
+        const icon = document.getElementById('dialIcon');
+        const badge = document.getElementById('dialBadge');
+
+        if (cur.status === 'idle' || !cur.phone) {
+            if (data.running) {
+                // Between calls — show countdown
+                if (!countdownInterval) startCountdown();
+            } else {
+                stopCountdown();
+                card.className = 'dialing-card idle';
+                icon.className = 'dial-icon idle-icon';
+                document.getElementById('dialPhone').textContent = 'No active call';
+                document.getElementById('dialName').textContent = 'Waiting for calls to start';
+                badge.className = 'dial-status-badge idle';
+                badge.textContent = 'IDLE';
+            }
+        } else {
+            stopCountdown();
+            card.className = 'dialing-card active';
+            const isConnected = ['answered','connected'].includes(cur.status);
+            icon.className = 'dial-icon ' + (isConnected ? 'connected' : 'dialing');
+            document.getElementById('dialPhone').textContent = cur.phone;
+            document.getElementById('dialName').textContent = cur.name + ' — ' + cur.client;
+            badge.className = 'dial-status-badge ' + cur.status;
+            badge.textContent = formatStatus(cur.status);
+        }
+
+        // Activity feed
+        const feed = document.getElementById('activityFeed');
+        if (data.log && data.log.length > 0) {
+            feed.innerHTML = data.log.map(e => `
+                <div class="activity-row">
+                    <span class="activity-time">${e.time}</span>
+                    <span class="activity-phone">${e.phone}</span>
+                    <span class="activity-name">${e.name}</span>
+                    <span class="feed-badge ${e.status}">${formatStatus(e.status)}</span>
+                </div>
+            `).join('');
+        }
+
+        // Auto-stop
+        if (data.total > 0 && data.completed >= data.total) {
+            stopPolling();
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+        }
+    }
+
+    // ─── Results ───
     async function loadResults() {
-        updateStatus("⏳", "Loading results...");
         const res = await authorizedFetch(`${API_BASE}/result-csv`);
         if (res && res.ok) {
             const csvText = await res.text();
@@ -249,16 +537,23 @@
                 tbody.appendChild(row);
             }
             document.getElementById('resultsSection').style.display = 'block';
-            updateStatus("✅", "Results loaded.");
         }
     }
+
     function downloadCSV() { window.open(`${API_BASE}/result-csv`, "_blank"); }
+
+    // ─── Init ───
     window.onload = () => {
-        authorizedFetch(`${API_BASE}/call-progress`).then(async (res) => {
+        authorizedFetch(`${API_BASE}/live-status`).then(async (res) => {
             if (res && res.ok) {
                 const data = await res.json();
-                if (data.total > 0 && data.completed < data.total) { document.getElementById("startBtn").disabled = true; document.getElementById("stopBtn").disabled = false; startPolling(); }
-                else updateStatus("✅", "System Ready");
+                document.getElementById('metricTotal').textContent = data.total;
+                document.getElementById('metricCompleted').textContent = data.completed;
+                if (data.total > 0 && data.completed < data.total) {
+                    document.getElementById("startBtn").disabled = true;
+                    document.getElementById("stopBtn").disabled = false;
+                    startPolling();
+                }
             }
         });
     };
