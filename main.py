@@ -297,6 +297,12 @@ def generate_final_output_csv():
 
 @app.post("/upload-contacts")
 async def upload_contacts(file: UploadFile):
+    global is_calling, stop_requested
+
+    with call_tracker["lock"]:
+        if call_tracker["running"]:
+            return {"error": "Cannot upload while calls are running. Stop calls first."}
+
     content = (await file.read()).decode('utf-8').splitlines()
     reader = csv.DictReader(content)
 
@@ -318,11 +324,19 @@ async def upload_contacts(file: UploadFile):
     with call_tracker["lock"]:
         call_tracker.update({"total": 0, "completed": 0, "running": False})
 
+    # Reset all state for fresh daily run
+    is_calling = False
+    stop_requested = False
+    current_call_info.update({"phone": "", "name": "", "client": "", "status": "idle"})
+    call_log.clear()
+    while not call_queue.empty():
+        call_queue.get()
+
     return {"message": "Contacts uploaded", "count": count}
 
 @app.post("/start-calls")
 def start_calls(background_tasks: BackgroundTasks):
-    global stop_requested
+    global stop_requested, is_calling
     stop_requested = False
 
     with call_tracker["lock"]:
@@ -338,6 +352,10 @@ def start_calls(background_tasks: BackgroundTasks):
         call_tracker["total"] = count
         call_tracker["completed"] = 0
         call_tracker["running"] = True
+
+    is_calling = False
+    current_call_info.update({"phone": "", "name": "", "client": "", "status": "idle"})
+    call_log.clear()
 
     background_tasks.add_task(run_outbound_calls)
     return {"status": "started", "total": count}
@@ -370,7 +388,8 @@ def run_outbound_calls():
         # Fire the first batch of concurrent calls
         start_next_call()
 
-    finally:
+    except Exception as e:
+        print(f"[ERROR] run_outbound_calls failed: {e}")
         with call_tracker["lock"]:
             call_tracker["running"] = False
 
@@ -391,7 +410,8 @@ def stop_calls():
 @app.api_route("/twilio/voice", methods=["GET", "POST"])
 async def twilio_voice(request: Request):
     phone = normalize_phone(request.query_params.get("phone"))
-    answered_by = request.query_params.get("AnsweredBy", "unknown")
+    form = await request.form()
+    answered_by = form.get("AnsweredBy", request.query_params.get("AnsweredBy", "unknown"))
 
     vr = VoiceResponse()
 
@@ -519,27 +539,30 @@ async def call_status(request: Request):
             save_result(phone, name, "completed_no_transfer")
 
 
-    # ── ALWAYS count & continue ──
-    with call_tracker["lock"]:
-        call_tracker["completed"] += 1
-        done = call_tracker["completed"]
-        total = call_tracker["total"]
-        print(f"Progress: {done}/{total}")
+    # ── Only count & continue on FINAL statuses ──
+    final_statuses = {"completed", "no-answer", "busy", "failed", "canceled"}
+    if status in final_statuses:
+        with call_tracker["lock"]:
+            call_tracker["completed"] += 1
+            done = call_tracker["completed"]
+            total = call_tracker["total"]
+            print(f"Progress: {done}/{total}")
 
-        if done >= total and total > 0:
-            print("All calls finished → generating output CSV")
-            generate_final_output_csv()
-            call_tracker["running"] = False
-            current_call_info["status"] = "idle"
-            current_call_info["phone"] = ""
-            current_call_info["name"] = ""
-            current_call_info["client"] = ""
+            if done >= total and total > 0:
+                print("All calls finished → generating output CSV")
+                generate_final_output_csv()
+                call_tracker["running"] = False
+                current_call_info["status"] = "idle"
+                current_call_info["phone"] = ""
+                current_call_info["name"] = ""
+                current_call_info["client"] = ""
 
-    with next_call_lock:
-        is_calling = False
+        with next_call_lock:
+            is_calling = False
 
-    # Wait 5 seconds, then call the next contact
-    Timer(CALL_GAP_SECONDS, start_next_call).start()
+        # Wait 5 seconds, then call the next contact
+        Timer(CALL_GAP_SECONDS, start_next_call).start()
+
     return "ok"
 
 @app.get("/result-csv")
