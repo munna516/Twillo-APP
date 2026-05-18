@@ -302,9 +302,15 @@
             }
         }
 
-        if (data.total > 0 && data.completed >= data.total) {
+        // Reset buttons when system is idle / done
+        const finished = data.total > 0 && data.completed >= data.total;
+        if (finished) {
             stopPolling();
             updateStatus("✅", "All calls finished");
+        }
+        if (!data.running && (finished || data.total === 0)) {
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
         }
     }
 
