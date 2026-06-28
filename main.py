@@ -75,7 +75,7 @@ def generate_audio(text: str, output_path: str):
     }
     payload = {
         "text": text,
-        "model_id": "eleven_monolingual_v1", 
+        "model_id": "eleven_flash_v2_5",
         "voice_settings": {
             "stability": 0.45,
             "similarity_boost": 0.75
