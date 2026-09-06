@@ -245,8 +245,18 @@
     }
 
     async function stopCalls(){
+        const stopBtn = document.getElementById("stopBtn");
+        stopBtn.disabled = true;
+        updateStatus("⏳", "Stopping calls...");
         const res = await authorizedFetch(`${API_BASE}/stop-calls`, { method: "POST" });
-        if(res && res.ok) { document.getElementById("startBtn").disabled = false; document.getElementById("stopBtn").disabled = true; stopPolling(); }
+        if (res && res.ok) {
+            document.getElementById("startBtn").disabled = false;
+            updateStatus("🛑", "Calling stopped");
+            updateLiveStatus(); // refresh live bar to idle; polling stops itself
+        } else {
+            stopBtn.disabled = false;
+            updateStatus("❌", "Failed to stop calls — please try again");
+        }
     }
 
     let pollingInterval = null;
@@ -302,15 +312,18 @@
             }
         }
 
-        // Reset buttons when system is idle / done
+        // Buttons follow the backend running flag
+        document.getElementById("startBtn").disabled = data.running;
+        document.getElementById("stopBtn").disabled = !data.running;
+
         const finished = data.total > 0 && data.completed >= data.total;
         if (finished) {
-            stopPolling();
             updateStatus("✅", "All calls finished");
         }
-        if (!data.running && (finished || data.total === 0)) {
-            document.getElementById("startBtn").disabled = false;
-            document.getElementById("stopBtn").disabled = true;
+
+        // Once the system has fully come to rest, stop polling
+        if (!data.running && status === "idle") {
+            stopPolling();
         }
     }
 
@@ -340,20 +353,15 @@
         }
     }
     function downloadCSV() { window.open(`${API_BASE}/result-csv`, "_blank"); }
-    window.onload = () => {
-        authorizedFetch(`${API_BASE}/live-status`).then(async (res) => {
-            if (res && res.ok) {
-                const data = await res.json();
-                updateLiveStatus();
-                if (data.total > 0 && data.completed < data.total) {
-                    document.getElementById("startBtn").disabled = true;
-                    document.getElementById("stopBtn").disabled = false;
-                    startPolling();
-                } else {
-                    updateStatus("✅", "System Ready");
-                }
-            }
-        });
+    window.onload = async () => {
+        const res = await authorizedFetch(`${API_BASE}/live-status`);
+        if (!res || !res.ok) return;
+        const data = await res.json();
+        if (data.running) {
+            startPolling(); // paints the live bar immediately and sets buttons
+        } else {
+            updateStatus("✅", "System Ready");
+        }
     };
 </script>
 </body>

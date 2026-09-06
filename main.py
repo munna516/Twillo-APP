@@ -124,7 +124,7 @@ is_calling = False
 
 
 def start_next_call():
-    global is_calling, stop_requested
+    global is_calling, stop_requested, active_call_sid
 
     if stop_requested:
         print("Stop requested. No more calls will be made.")
@@ -154,7 +154,7 @@ def start_next_call():
         if len(call_log) > 50:
             call_log.pop()
 
-        twilio.calls.create(
+        call = twilio.calls.create(
             to=phone,
             from_=TWILIO_PHONE_NUMBER,
             url=f"{BASE_URL}/twilio/voice?phone={phone}",
@@ -166,8 +166,11 @@ def start_next_call():
             machine_detection_speech_end_threshold=1200,
             machine_detection_silence_timeout=5000,
         )
+        active_call_sid = call.sid
     except queue.Empty:
-        pass
+        # Queue was drained (e.g. Stop pressed) between the check and the get
+        with next_call_lock:
+            is_calling = False
     except Exception as e:
         print(f"[ERROR] Failed to call {phone}: {e}")
         current_call_info["status"] = "failed"
@@ -176,6 +179,7 @@ def start_next_call():
 
 
 stop_requested = False
+active_call_sid = None  # Twilio SID of the call currently in flight
 
 # Global state
 call_tracker = {
@@ -371,6 +375,10 @@ def run_outbound_calls():
 
             reader = csv.DictReader(f)
             for row in reader:
+                if stop_requested:
+                    print("Stop requested — no more calls will be queued.")
+                    return
+
                 phone = normalize_phone(row.get("Phone", ""))
                 name = row.get("Name", "").strip() or "there"
                 client = row.get("Client", "").strip()
@@ -396,9 +404,31 @@ def run_outbound_calls():
 
 @app.post("/stop-calls")
 def stop_calls():
-    global stop_requested
+    global stop_requested, is_calling, active_call_sid
 
     stop_requested = True
+
+    # 1) Hang up the call that is currently in flight
+    if active_call_sid:
+        try:
+            twilio.calls(active_call_sid).update(status="completed")
+            print(f"[STOP] Terminated active call: {active_call_sid}")
+        except Exception as e:
+            # Call may have already ended on its own — safe to ignore
+            print(f"[STOP] Could not terminate call {active_call_sid}: {e}")
+        active_call_sid = None
+
+    # 2) Drain the queue so no pending contact gets dialed
+    with next_call_lock:
+        while not call_queue.empty():
+            try:
+                call_queue.get_nowait()
+            except queue.Empty:
+                break
+        is_calling = False
+
+    # 3) Reset state so the dashboard returns to idle immediately
+    current_call_info.update({"phone": "", "name": "", "client": "", "status": "idle"})
 
     with call_tracker["lock"]:
         call_tracker["running"] = False
@@ -491,7 +521,7 @@ async def transfer_call(request: Request):
 
 @app.post("/twilio/status")
 async def call_status(request: Request):
-    global is_calling
+    global is_calling, active_call_sid
     form = await request.form()
 
     phone_raw = form.get("To") or form.get("Called") or form.get("From")
@@ -511,7 +541,10 @@ async def call_status(request: Request):
 
     # ── Update live call tracking ──
     if status in ("ringing", "answered", "completed", "no-answer", "busy", "failed", "canceled"):
-        current_call_info["status"] = status
+        # Ignore stale callbacks (e.g. the hang-up confirmation arriving after Stop
+        # already reset the dashboard to idle)
+        if current_call_info["phone"] == phone:
+            current_call_info["status"] = status
         for entry in call_log:
             if entry["phone"] == phone and entry["status"] in ("dialing", "ringing", "answered"):
                 entry["status"] = status
@@ -542,6 +575,8 @@ async def call_status(request: Request):
     # ── Only count & continue on FINAL statuses ──
     final_statuses = {"completed", "no-answer", "busy", "failed", "canceled"}
     if status in final_statuses:
+        active_call_sid = None  # call is over — nothing to hang up on Stop
+
         with call_tracker["lock"]:
             call_tracker["completed"] += 1
             done = call_tracker["completed"]
