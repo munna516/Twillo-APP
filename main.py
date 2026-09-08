@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 import csv
 import json
 import os
+import time
+import fcntl
 from datetime import datetime
 from threading import Lock, Timer
 import requests
@@ -64,6 +66,47 @@ AUDIO_DIR        = "audio"
 os.makedirs(OUTPUT_CSV_DIR, exist_ok=True)
 os.makedirs(AUDIO_DIR, exist_ok=True)
 app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
+
+# ─── Cross-process shared state ──────────────────────────────────────────
+# When the app runs under multiple uvicorn/gunicorn workers (or multiple
+# containers), module-level globals are per-process and `/stop-calls` cannot
+# see the active call SID owned by the worker running the dialer. We persist
+# the small set of fields that must be visible to every worker to a JSON file
+# under an OS-level flock.
+STATE_FILE = ".dialer_state.json"
+STATE_LOCK = STATE_FILE + ".lock"
+
+_DEFAULT_STATE = {
+    "stop_requested": False,
+    "active_call_sid": None,
+    "running": False,
+    "total": 0,
+    "completed": 0,
+    "current": {"phone": "", "name": "", "client": "", "status": "idle"},
+}
+
+
+def _state_read() -> dict:
+    """Read shared state from disk; return defaults if missing or corrupt."""
+    try:
+        with open(STATE_FILE, "r") as f:
+            data = json.load(f)
+        return {**_DEFAULT_STATE, **data}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_STATE)
+
+
+def _state_write(updates: dict) -> dict:
+    """Atomic read-modify-write of shared state under fcntl.flock."""
+    with open(STATE_LOCK, "w") as lockf:
+        fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
+        state = _state_read()
+        state.update(updates)
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, STATE_FILE)
+        return state
 
 # ─── ElevenLabs TTS ────
 def generate_audio(text: str, output_path: str):
@@ -124,9 +167,10 @@ is_calling = False
 
 
 def start_next_call():
-    global is_calling, stop_requested, active_call_sid
+    global is_calling
 
-    if stop_requested:
+    # Read the stop flag from shared state — another worker may have set it.
+    if _state_read()["stop_requested"]:
         print("Stop requested. No more calls will be made.")
         return
 
@@ -143,6 +187,7 @@ def start_next_call():
         current_call_info["name"] = name
         current_call_info["client"] = client_id
         current_call_info["status"] = "dialing"
+        _state_write({"current": dict(current_call_info)})
 
         call_log.insert(0, {
             "time": datetime.now().strftime("%H:%M:%S"),
@@ -166,7 +211,9 @@ def start_next_call():
             machine_detection_speech_end_threshold=1200,
             machine_detection_silence_timeout=5000,
         )
-        active_call_sid = call.sid
+        # Publish the SID to shared state so /stop-calls on any worker can
+        # find and hang up this call.
+        _state_write({"active_call_sid": call.sid})
     except queue.Empty:
         # Queue was drained (e.g. Stop pressed) between the check and the get
         with next_call_lock:
@@ -174,6 +221,7 @@ def start_next_call():
     except Exception as e:
         print(f"[ERROR] Failed to call {phone}: {e}")
         current_call_info["status"] = "failed"
+        _state_write({"current": dict(current_call_info)})
         with next_call_lock:
             is_calling = False
 
@@ -301,11 +349,10 @@ def generate_final_output_csv():
 
 @app.post("/upload-contacts")
 async def upload_contacts(file: UploadFile):
-    global is_calling, stop_requested
+    global is_calling
 
-    with call_tracker["lock"]:
-        if call_tracker["running"]:
-            return {"error": "Cannot upload while calls are running. Stop calls first."}
+    if _state_read()["running"]:
+        return {"error": "Cannot upload while calls are running. Stop calls first."}
 
     content = (await file.read()).decode('utf-8').splitlines()
     reader = csv.DictReader(content)
@@ -325,12 +372,19 @@ async def upload_contacts(file: UploadFile):
 
     count = load_contacts_to_memory()
 
+    # Reset all shared + local state for fresh daily run
+    _state_write({
+        "stop_requested": False,
+        "active_call_sid": None,
+        "running": False,
+        "total": 0,
+        "completed": 0,
+        "current": {"phone": "", "name": "", "client": "", "status": "idle"},
+    })
     with call_tracker["lock"]:
         call_tracker.update({"total": 0, "completed": 0, "running": False})
 
-    # Reset all state for fresh daily run
     is_calling = False
-    stop_requested = False
     current_call_info.update({"phone": "", "name": "", "client": "", "status": "idle"})
     call_log.clear()
     while not call_queue.empty():
@@ -340,19 +394,28 @@ async def upload_contacts(file: UploadFile):
 
 @app.post("/start-calls")
 def start_calls(background_tasks: BackgroundTasks):
-    global stop_requested, is_calling
-    stop_requested = False
+    global is_calling
 
+    if _state_read()["running"]:
+        return {"error": "Already running"}
+    if not os.path.exists(CONTACTS_CSV):
+        return {"error": "Upload contacts first"}
+
+    count = load_contacts_to_memory()
+    if count == 0:
+        return {"error": "No contacts"}
+
+    # Publish the new run to shared state BEFORE launching the background task
+    # so any worker polling /live-status sees a consistent picture.
+    _state_write({
+        "stop_requested": False,
+        "active_call_sid": None,
+        "running": True,
+        "total": count,
+        "completed": 0,
+        "current": {"phone": "", "name": "", "client": "", "status": "idle"},
+    })
     with call_tracker["lock"]:
-        if call_tracker["running"]:
-            return {"error": "Already running"}
-        if not os.path.exists(CONTACTS_CSV):
-            return {"error": "Upload contacts first"}
-
-        count = load_contacts_to_memory()
-        if count == 0:
-            return {"error": "No contacts"}
-
         call_tracker["total"] = count
         call_tracker["completed"] = 0
         call_tracker["running"] = True
@@ -369,13 +432,17 @@ def run_outbound_calls():
         while not call_queue.empty():
             call_queue.get()
 
+        # Fresh batch: reset stop flag in shared state so a previous Stop
+        # doesn't carry over into a new /start-calls run.
+        _state_write({"stop_requested": False, "active_call_sid": None})
+
         with open(CONTACTS_CSV, newline='', encoding='utf-8') as f:
-            if stop_requested:
+            if _state_read()["stop_requested"]:
                 return
 
             reader = csv.DictReader(f)
             for row in reader:
-                if stop_requested:
+                if _state_read()["stop_requested"]:
                     print("Stop requested — no more calls will be queued.")
                     return
 
@@ -398,27 +465,49 @@ def run_outbound_calls():
 
     except Exception as e:
         print(f"[ERROR] run_outbound_calls failed: {e}")
-        with call_tracker["lock"]:
-            call_tracker["running"] = False
+        _state_write({"running": False})
 
 
 @app.post("/stop-calls")
 def stop_calls():
-    global stop_requested, is_calling, active_call_sid
+    global is_calling
 
-    stop_requested = True
+    # 1) Flip the stop flag in shared state FIRST. Every worker reads this
+    # before dialling the next contact, so any worker running the dialer will
+    # see the flag on its next pass.
+    _state_write({"stop_requested": True})
 
-    # 1) Hang up the call that is currently in flight
-    if active_call_sid:
+    # 2) Poll the shared state briefly for the active Twilio call SID. The
+    # worker that placed the call publishes the SID to shared state right
+    # after `twilio.calls.create(...)` returns, but a tiny race window exists
+    # where Stop may arrive before that write completes. Polling up to ~2s
+    # closes that window without making Stop feel slow.
+    active_sid = None
+    for _ in range(20):
+        active_sid = _state_read().get("active_call_sid")
+        if active_sid:
+            break
+        time.sleep(0.1)
+
+    # 3) Hang up the call that is currently in flight
+    if active_sid:
         try:
-            twilio.calls(active_call_sid).update(status="completed")
-            print(f"[STOP] Terminated active call: {active_call_sid}")
+            twilio.calls(active_sid).update(status="completed")
+            print(f"[STOP] Terminated active call: {active_sid}")
         except Exception as e:
             # Call may have already ended on its own — safe to ignore
-            print(f"[STOP] Could not terminate call {active_call_sid}: {e}")
-        active_call_sid = None
+            print(f"[STOP] Could not terminate call {active_sid}: {e}")
 
-    # 2) Drain the queue so no pending contact gets dialed
+    # 4) Clear SID + reset current call so the dashboard returns to idle
+    _state_write({
+        "active_call_sid": None,
+        "running": False,
+        "current": {"phone": "", "name": "", "client": "", "status": "idle"},
+    })
+
+    # 5) Drain the in-memory queue held by THIS worker. (Other workers may
+    # have their own empty queue copies — that's fine; the stop flag will
+    # keep them from dialling anything new.)
     with next_call_lock:
         while not call_queue.empty():
             try:
@@ -427,9 +516,8 @@ def stop_calls():
                 break
         is_calling = False
 
-    # 3) Reset state so the dashboard returns to idle immediately
+    # 6) Sync in-memory caches for the local worker
     current_call_info.update({"phone": "", "name": "", "client": "", "status": "idle"})
-
     with call_tracker["lock"]:
         call_tracker["running"] = False
 
@@ -521,7 +609,7 @@ async def transfer_call(request: Request):
 
 @app.post("/twilio/status")
 async def call_status(request: Request):
-    global is_calling, active_call_sid
+    global is_calling
     form = await request.form()
 
     phone_raw = form.get("To") or form.get("Called") or form.get("From")
@@ -545,6 +633,7 @@ async def call_status(request: Request):
         # already reset the dashboard to idle)
         if current_call_info["phone"] == phone:
             current_call_info["status"] = status
+            _state_write({"current": dict(current_call_info)})
         for entry in call_log:
             if entry["phone"] == phone and entry["status"] in ("dialing", "ringing", "answered"):
                 entry["status"] = status
@@ -575,7 +664,9 @@ async def call_status(request: Request):
     # ── Only count & continue on FINAL statuses ──
     final_statuses = {"completed", "no-answer", "busy", "failed", "canceled"}
     if status in final_statuses:
-        active_call_sid = None  # call is over — nothing to hang up on Stop
+        # Call is over — nothing to hang up on Stop. Clear the SID in shared
+        # state so /stop-calls on any worker doesn't try to terminate it.
+        _state_write({"active_call_sid": None})
 
         with call_tracker["lock"]:
             call_tracker["completed"] += 1
@@ -591,11 +682,20 @@ async def call_status(request: Request):
                 current_call_info["phone"] = ""
                 current_call_info["name"] = ""
                 current_call_info["client"] = ""
+                _state_write({
+                    "running": False,
+                    "completed": done,
+                    "current": dict(current_call_info),
+                })
+            else:
+                _state_write({"completed": done})
 
         with next_call_lock:
             is_calling = False
 
-        # Wait 5 seconds, then call the next contact
+        # Wait 5 seconds, then call the next contact. The shared stop flag
+        # is consulted inside start_next_call, so a Stop request that arrives
+        # during the gap will abort the next dial.
         Timer(CALL_GAP_SECONDS, start_next_call).start()
 
     return "ok"
@@ -630,23 +730,23 @@ def result_csv():
 
 @app.get("/call-progress")
 def call_progress():
-    with call_tracker["lock"]:
-        return {
-            "total": call_tracker["total"],
-            "completed": call_tracker["completed"]
-        }
+    s = _state_read()
+    return {
+        "total": s["total"],
+        "completed": s["completed"]
+    }
 
 
 @app.get("/live-status")
 def live_status():
-    with call_tracker["lock"]:
-        return {
-            "total": call_tracker["total"],
-            "completed": call_tracker["completed"],
-            "running": call_tracker["running"],
-            "current": dict(current_call_info),
-            "log": call_log[:30]
-        }
+    s = _state_read()
+    return {
+        "total": s["total"],
+        "completed": s["completed"],
+        "running": s["running"],
+        "current": s["current"],
+        "log": call_log[:30]
+    }
 
 
 

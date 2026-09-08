@@ -12,3 +12,5 @@ output_results/
 audio/
 contacts.csv
 call_results.json
+.dialer_state.json
+.dialer_state.json.lock
